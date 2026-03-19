@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user profile data and customization settings.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique ID" },
+        "email": { "type": "string", "format": "email" },
+        "username": { "type": "string", "description": "Display name" },
+        "handle": { "type": "string", "description": "Unique handle" },
+        "pfp": { "type": "string", "description": "Profile picture URL" },
+        "banner": { "type": "string", "description": "Banner image URL" },
+        "bio": { "type": "string" },
+        "theme": { "type": "string" },
+        "cardStyle": { "type": "string" },
+        "profileEffect": { "type": "string" },
+        "pfpRing": { "type": "string" },
+        "cardGlow": { "type": "string" },
+        "cardOutline": { "type": "string" },
+        "cardOutlineWidth": { "type": "number" },
+        "animationsEnabled": { "type": "boolean" },
+        "animationSpeed": { "type": "string" },
+        "musicStyle": { "type": "string" },
+        "musicType": { "type": "string" },
+        "musicSource": { "type": "string" },
+        "musicTitle": { "type": "string" },
+        "musicArtist": { "type": "string" },
+        "musicAlbumArt": { "type": "string" },
+        "usernameStyle": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "value": { "type": "string" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "username", "handle"]
+    },
+    "FriendRequest": {
+      "title": "Friend Request",
+      "description": "A request sent from one user to another to become friends.",
+      "type": "object",
+      "properties": {
+        "fromUserId": { "type": "string" },
+        "toUserId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fromUserId", "toUserId", "status", "createdAt"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "A confirmed friendship between two users.",
+      "type": "object",
+      "properties": {
+        "user1Id": { "type": "string" },
+        "user2Id": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user1Id", "user2Id", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles stored by their UID."
+    },
+    "/friendRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/FriendRequest" },
+      "description": "Friend requests between users."
+    },
+    "/friendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Confirmed friendships."
+    }
+  }
+}

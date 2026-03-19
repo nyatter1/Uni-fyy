@@ -1,0 +1,122 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.username is string && data.username.size() > 0 && data.username.size() <= 50 &&
+             data.handle is string && data.handle.size() > 0 && data.handle.size() <= 30;
+    }
+    
+    function isValidFriendRequest(data) {
+      return data.fromUserId is string && data.fromUserId.size() > 0 &&
+             data.toUserId is string && data.toUserId.size() > 0 &&
+             data.status in ['pending', 'accepted', 'rejected'] &&
+             data.createdAt is string;
+    }
+    
+    function isValidFriendship(data) {
+      return data.user1Id is string && data.user1Id.size() > 0 &&
+             data.user2Id is string && data.user2Id.size() > 0 &&
+             data.createdAt is string;
+    }
+
+    // ===============================================================
+    // Users Collection
+    // ===============================================================
+    match /users/{userId} {
+      // Anyone authenticated can read user profiles to find friends
+      allow read: if isAuthenticated();
+      
+      // Only the user can create their own profile
+      allow create: if isOwner(userId) && 
+                    hasRequiredFields(['uid', 'email', 'username', 'handle']) &&
+                    isValidUser(request.resource.data) &&
+                    uidUnchanged();
+                    
+      // Only the user can update their own profile
+      allow update: if isOwner(userId) && 
+                    isValidUser(request.resource.data) &&
+                    uidNotModified();
+    }
+
+    // ===============================================================
+    // Friend Requests Collection
+    // ===============================================================
+    match /friendRequests/{requestId} {
+      // Users can read requests they sent or received
+      allow read: if isAuthenticated() && 
+                  (request.auth.uid == resource.data.fromUserId || request.auth.uid == resource.data.toUserId);
+                  
+      // Users can create a request from themselves to someone else
+      allow create: if isAuthenticated() && 
+                    hasRequiredFields(['fromUserId', 'toUserId', 'status', 'createdAt']) &&
+                    isValidFriendRequest(request.resource.data) &&
+                    request.resource.data.fromUserId == request.auth.uid &&
+                    request.resource.data.status == 'pending';
+                    
+      // Only the recipient can update the status (accept/reject)
+      allow update: if isAuthenticated() && 
+                    request.auth.uid == resource.data.toUserId &&
+                    isValidFriendRequest(request.resource.data) &&
+                    request.resource.data.fromUserId == resource.data.fromUserId &&
+                    request.resource.data.toUserId == resource.data.toUserId &&
+                    request.resource.data.createdAt == resource.data.createdAt;
+                    
+      // Either user can delete the request (cancel or reject)
+      allow delete: if isAuthenticated() && 
+                    (request.auth.uid == resource.data.fromUserId || request.auth.uid == resource.data.toUserId);
+    }
+
+    // ===============================================================
+    // Friendships Collection
+    // ===============================================================
+    match /friendships/{friendshipId} {
+      // Users can read their own friendships
+      allow read: if isAuthenticated() && 
+                  (request.auth.uid == resource.data.user1Id || request.auth.uid == resource.data.user2Id);
+                  
+      // Either user can create a friendship (usually after accepting a request)
+      allow create: if isAuthenticated() && 
+                    hasRequiredFields(['user1Id', 'user2Id', 'createdAt']) &&
+                    isValidFriendship(request.resource.data) &&
+                    (request.resource.data.user1Id == request.auth.uid || request.resource.data.user2Id == request.auth.uid);
+                    
+      // Friendships shouldn't be updated, only created or deleted
+      allow update: if false;
+      
+      // Either user can delete the friendship (unfriend)
+      allow delete: if isAuthenticated() && 
+                    (request.auth.uid == resource.data.user1Id || request.auth.uid == resource.data.user2Id);
+    }
+  }
+}
