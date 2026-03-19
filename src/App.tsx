@@ -11,10 +11,11 @@ import {
   Heart, Anchor, Mountain, TreeDeciduous, 
   Leaf, Droplets, Sparkles, Play, Volume2, ExternalLink,
   Eye, Pause, Youtube, Music as SpotifyIcon, Link as LinkIcon,
-  Users, MessageSquare, Plus, Compass, LayoutGrid, Bell, Search, Settings, LogOut, ShieldCheck
+  Users, MessageSquare, Plus, Compass, LayoutGrid, Bell, Search, Settings, LogOut, ShieldCheck,
+  Mail, Lock
 } from 'lucide-react';
 import { auth, db } from './firebase';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { onAuthStateChanged, User as FirebaseUser, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 
 // --- Types ---
@@ -752,6 +753,10 @@ export default function App() {
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+
   const [profile, setProfile] = useState<ProfileState>({
     username: '',
     handle: '',
@@ -868,12 +873,24 @@ export default function App() {
     };
   }, [user, isAuthReady]);
 
-  const handleGoogleLogin = async () => {
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
       console.error("Login error:", error);
+      alert("Failed to sign in. Please check your credentials.");
+    }
+  };
+
+  const handleEmailSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      // The auth listener will pick this up and set state to 'wizard'
+    } catch (error) {
+      console.error("Signup error:", error);
+      alert("Failed to sign up.");
     }
   };
 
@@ -2177,8 +2194,13 @@ export default function App() {
                 <p className="text-white/40 text-sm font-light">Enter your credentials to access the infinity.</p>
               </div>
 
-              <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
-                <AuthButton onClick={handleGoogleLogin}>Sign In with Google</AuthButton>
+              <form onSubmit={handleEmailLogin} className="space-y-6">
+                <InputField icon={Mail} label="Email Address" type="email" placeholder="name@luxury.com" value={email} onChange={(e: any) => setEmail(e.target.value)} />
+                <InputField icon={Lock} label="Password" type="password" placeholder="••••••••" value={password} onChange={(e: any) => setPassword(e.target.value)} />
+                <div className="flex justify-end">
+                  <button type="button" className="text-[11px] uppercase tracking-widest text-white/30 hover:text-emerald-400 transition-colors">Forgot Password?</button>
+                </div>
+                <AuthButton>Sign In</AuthButton>
               </form>
 
               <div className="mt-10 text-center">
@@ -2202,8 +2224,11 @@ export default function App() {
                 <p className="text-white/40 text-sm font-light">Begin your journey into the unified space.</p>
               </div>
 
-              <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
-                <AuthButton onClick={handleGoogleLogin}>Sign Up with Google</AuthButton>
+              <form onSubmit={handleEmailSignup} className="space-y-6">
+                <InputField icon={User} label="Full Name" type="text" placeholder="Julian Sterling" value={fullName} onChange={(e: any) => setFullName(e.target.value)} />
+                <InputField icon={Mail} label="Email Address" type="email" placeholder="name@luxury.com" value={email} onChange={(e: any) => setEmail(e.target.value)} />
+                <InputField icon={Lock} label="Password" type="password" placeholder="••••••••" value={password} onChange={(e: any) => setPassword(e.target.value)} />
+                <AuthButton>Create Account</AuthButton>
               </form>
 
               <div className="mt-10 text-center">
@@ -2246,7 +2271,21 @@ export default function App() {
   );
 }
 
-// InputField removed as it's no longer used
+const InputField = ({ icon: Icon, label, type, placeholder, value, onChange }: { icon: any, label: string, type: string, placeholder: string, value?: string, onChange?: (e: any) => void }) => (
+  <div className="group">
+    <label className="block text-[10px] uppercase tracking-[0.2em] font-medium text-white/40 mb-2 ml-1">{label}</label>
+    <div className="relative">
+      <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-emerald-400 transition-colors" />
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        className="w-full pl-12 pr-4 py-4 bg-white/[0.03] border border-white/10 rounded-xl text-white placeholder:text-white/10 focus:outline-none focus:ring-1 focus:ring-emerald-400/50 transition-all"
+        placeholder={placeholder}
+      />
+    </div>
+  </div>
+);
 
 const AuthButton = ({ children, onClick }: { children: ReactNode, onClick?: () => void }) => (
   <button
