@@ -1934,50 +1934,79 @@ export default function App() {
                   )}
 
                   {friendsSubTab === 'Add Friend' && (
-                    <div className="max-w-md mx-auto mt-10">
-                      <h2 className="text-xl font-bold mb-2">Add Friend</h2>
-                      <p className="text-sm text-white/40 mb-6">You can add friends with their Uni-fy handle.</p>
-                      <div className="relative mb-8">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                        <input 
-                          type="text" 
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Search by handle or username..." 
-                          className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-emerald-400/50 transition-colors"
-                        />
-                      </div>
-                      
-                      {searchQuery && (
-                        <div className="space-y-2">
-                          {allUsers.filter(u => 
-                            u.handle?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            u.username?.toLowerCase().includes(searchQuery.toLowerCase())
-                          ).map(u => (
-                            <div key={u.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
-                              <div className="flex items-center gap-3">
-                                {u.pfp ? (
-                                  <img src={u.pfp} alt={u.username} className="w-10 h-10 rounded-xl object-cover" />
-                                ) : (
-                                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center font-bold">
-                                    {u.username?.[0] || '?'}
-                                  </div>
-                                )}
-                                <div>
-                                  <div className="text-sm font-bold">{u.username}</div>
-                                  <div className="text-xs text-white/40">@{u.handle}</div>
-                                </div>
-                              </div>
-                              <button 
-                                onClick={() => handleSendRequest(u.id)}
-                                className="px-3 py-1.5 bg-emerald-500 text-black text-xs font-bold rounded-lg hover:bg-emerald-400 transition-colors"
-                              >
-                                Send Request
-                              </button>
-                            </div>
-                          ))}
+                    <div className="p-6">
+                      <div className="mb-8">
+                        <h2 className="text-sm font-bold uppercase tracking-wider mb-2">Add Friend</h2>
+                        <p className="text-[13px] text-white/40">You can add a friend with their Uni-fy handle.</p>
+                        
+                        <div className="mt-4 relative group">
+                          <div className="flex items-center bg-[#111214] border border-black/20 rounded-lg p-1 focus-within:border-emerald-500/50 transition-all">
+                            <input 
+                              type="text" 
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              placeholder="Enter a handle..." 
+                              className="flex-grow bg-transparent border-none px-3 py-2 text-[15px] focus:outline-none placeholder:text-white/20"
+                            />
+                            <button 
+                              disabled={!searchQuery}
+                              className={`px-4 py-2 rounded font-medium text-xs transition-all ${searchQuery ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'bg-emerald-500/20 text-emerald-500/40 cursor-not-allowed'}`}
+                            >
+                              Send Friend Request
+                            </button>
+                          </div>
                         </div>
-                      )}
+                      </div>
+
+                      <div className="border-t border-white/5 pt-8">
+                        {searchQuery ? (
+                          <>
+                            <div className="mb-4">
+                              <span className="text-[10px] uppercase tracking-widest font-bold text-white/20">Search Results</span>
+                            </div>
+                            <div className="space-y-1">
+                              {allUsers
+                                .filter(u => u.id !== user?.uid) // Don't show self
+                                .filter(u => 
+                                  u.handle?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                  u.username?.toLowerCase().includes(searchQuery.toLowerCase())
+                                ).map(u => (
+                                  <div key={u.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all group">
+                                    <div className="flex items-center gap-4">
+                                      <div className="relative">
+                                        {u.pfp ? (
+                                          <img src={u.pfp} alt={u.username} className="w-10 h-10 rounded-xl object-cover border border-white/10" />
+                                        ) : (
+                                          <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-xs font-bold">
+                                            {u.username?.[0] || '?'}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <div className="text-sm font-bold">{u.username}</div>
+                                        <div className="text-[10px] text-white/30">@{u.handle}</div>
+                                      </div>
+                                    </div>
+                                    <button 
+                                      onClick={() => handleSendRequest(u.id)}
+                                      className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all"
+                                      title="Send Friend Request"
+                                    >
+                                      <Plus className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                ))}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-20 opacity-20">
+                            <div className="w-48 h-48 bg-white/10 rounded-full flex items-center justify-center mb-6">
+                              <Compass className="w-24 h-24" />
+                            </div>
+                            <p className="text-sm font-medium">Wumpus is waiting for friends...</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
