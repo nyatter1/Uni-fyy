@@ -1,10 +1,9 @@
 {
-  "projectId": "discordrip-ecaf8",
-  "appId": "1:395946344209:web:d3175a19317eaa38e696b0",
-  "apiKey": "AIzaSyD9LZjzznDnWzxn3HSpzul-0DQKDjNQcsA",
-  "authDomain": "discordrip-ecaf8.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-7f1a5991-cd08-41f9-b469-8d8402767689",
-  "storageBucket": "discordrip-ecaf8.firebasestorage.app",
-  "messagingSenderId": "395946344209",
-  "measurementId": ""
+  "projectId": "uni-fy-a9ad5",
+  "appId": "1:1077717130672:web:a15a1aedd93d17e0110a75",
+  "apiKey": "AIzaSyCsZrV-4ZjndvK5Ok4Kc4OU1iXLXSFx3Jg",
+  "authDomain": "uni-fy-a9ad5.firebaseapp.com",
+  "storageBucket": "uni-fy-a9ad5.firebasestorage.app",
+  "messagingSenderId": "1077717130672",
+  "measurementId": "G-JWBV2X6C65"
 }

@@ -10,6 +10,12 @@ service cloud.firestore {
       return request.auth != null;
     }
     
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "haydensixseven@gmail.com" && request.auth.token.email_verified == true));
+    }
+    
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
@@ -41,13 +47,13 @@ service cloud.firestore {
       return data.fromUserId is string && data.fromUserId.size() > 0 &&
              data.toUserId is string && data.toUserId.size() > 0 &&
              data.status in ['pending', 'accepted', 'rejected'] &&
-             data.createdAt is string;
+             data.createdAt is timestamp;
     }
     
     function isValidFriendship(data) {
       return data.user1Id is string && data.user1Id.size() > 0 &&
              data.user2Id is string && data.user2Id.size() > 0 &&
-             data.createdAt is string;
+             data.createdAt is timestamp;
     }
 
     // ===============================================================
@@ -67,6 +73,9 @@ service cloud.firestore {
       allow update: if isOwner(userId) && 
                     isValidUser(request.resource.data) &&
                     uidNotModified();
+
+      // Admins can delete users
+      allow delete: if isAdmin();
     }
 
     // ===============================================================
@@ -92,9 +101,9 @@ service cloud.firestore {
                     request.resource.data.toUserId == resource.data.toUserId &&
                     request.resource.data.createdAt == resource.data.createdAt;
                     
-      // Either user can delete the request (cancel or reject)
-      allow delete: if isAuthenticated() && 
-                    (request.auth.uid == resource.data.fromUserId || request.auth.uid == resource.data.toUserId);
+      // Either user can delete the request (cancel or reject), or admin can delete
+      allow delete: if (isAuthenticated() && 
+                    (request.auth.uid == resource.data.fromUserId || request.auth.uid == resource.data.toUserId)) || isAdmin();
     }
 
     // ===============================================================
@@ -114,9 +123,9 @@ service cloud.firestore {
       // Friendships shouldn't be updated, only created or deleted
       allow update: if false;
       
-      // Either user can delete the friendship (unfriend)
-      allow delete: if isAuthenticated() && 
-                    (request.auth.uid == resource.data.user1Id || request.auth.uid == resource.data.user2Id);
+      // Either user can delete the friendship (unfriend), or admin can delete
+      allow delete: if (isAuthenticated() && 
+                    (request.auth.uid == resource.data.user1Id || request.auth.uid == resource.data.user2Id)) || isAdmin();
     }
   }
 }

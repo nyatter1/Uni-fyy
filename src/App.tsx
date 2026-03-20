@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 
 // --- Types ---
 enum OperationType {
@@ -736,6 +736,30 @@ const ProfilePreview = ({ profile, viewMode = 'editor' }: { profile: ProfileStat
   );
 };
 
+const DEFAULT_PROFILE: ProfileState = {
+  username: '',
+  handle: '',
+  pfp: null,
+  banner: null,
+  usernameStyle: { type: 'solid', value: '#FFFFFF' },
+  pfpRing: 'none',
+  profileEffect: 'none',
+  cardStyle: 'glass',
+  bio: '',
+  animationsEnabled: true,
+  animationSpeed: 'normal',
+  theme: 'dark',
+  musicStyle: 'none',
+  musicType: 'none',
+  musicSource: null,
+  musicTitle: '',
+  musicArtist: '',
+  musicAlbumArt: '',
+  cardGlow: 'none',
+  cardOutline: 'none',
+  cardOutlineWidth: 1
+};
+
 export default function App() {
   const [authState, setAuthState] = useState<'login' | 'signup' | 'wizard' | 'app'>('login');
   const [step, setStep] = useState(1);
@@ -757,29 +781,7 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
 
-  const [profile, setProfile] = useState<ProfileState>({
-    username: '',
-    handle: '',
-    pfp: null,
-    banner: null,
-    usernameStyle: { type: 'solid', value: '#FFFFFF' },
-    pfpRing: 'none',
-    profileEffect: 'none',
-    cardStyle: 'glass',
-    bio: '',
-    animationsEnabled: true,
-    animationSpeed: 'normal',
-    theme: 'dark',
-    musicStyle: 'none',
-    musicType: 'none',
-    musicSource: null,
-    musicTitle: '',
-    musicArtist: '',
-    musicAlbumArt: '',
-    cardGlow: 'none',
-    cardOutline: 'none',
-    cardOutlineWidth: 1
-  });
+  const [profile, setProfile] = useState<ProfileState>(DEFAULT_PROFILE);
 
   const handleNext = () => setStep(s => Math.min(s + 1, 4));
   const handleBack = () => setStep(s => Math.max(s - 1, 1));
@@ -813,7 +815,7 @@ export default function App() {
           const docRef = doc(db, 'users', currentUser.uid);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            setProfile(docSnap.data() as ProfileState);
+            setProfile({ ...DEFAULT_PROFILE, ...docSnap.data() } as ProfileState);
             setAuthState('app');
           } else {
             setAuthState('wizard');
@@ -909,6 +911,27 @@ export default function App() {
     }
   };
 
+  const handleWipeAllData = async () => {
+    if (!user || user.email !== 'haydensixseven@gmail.com') return;
+    
+    const confirmWipe = window.confirm("CRITICAL: This will delete ALL users, friend requests, and friendships from the database. This action is irreversible. Are you absolutely sure?");
+    if (!confirmWipe) return;
+
+    try {
+      const collections = ['users', 'friendRequests', 'friendships'];
+      for (const colName of collections) {
+        const snapshot = await getDocs(collection(db, colName));
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+      }
+      alert("Database wiped successfully. Note: Authentication accounts must be manually deleted in the Firebase Console.");
+      window.location.reload();
+    } catch (error) {
+      console.error("Wipe error:", error);
+      alert("An error occurred while wiping the database.");
+    }
+  };
+
   const handleSendRequest = async (toUserId: string) => {
     if (!user) return;
     try {
@@ -965,7 +988,7 @@ export default function App() {
                   <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-emerald-400 transition-colors" />
                   <input 
                     type="text"
-                    value={profile.username}
+                    value={profile.username || ''}
                     onChange={(e) => setProfile({ ...profile, username: e.target.value })}
                     className="w-full pl-12 pr-4 py-4 bg-white/[0.03] border border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-400/50 transition-all"
                     placeholder="Julian Sterling"
@@ -979,7 +1002,7 @@ export default function App() {
                   <AtSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-emerald-400 transition-colors" />
                   <input 
                     type="text"
-                    value={profile.handle}
+                    value={profile.handle || ''}
                     onChange={(e) => setProfile({ ...profile, handle: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
                     className="w-full pl-12 pr-12 py-4 bg-white/[0.03] border border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-400/50 transition-all"
                     placeholder="julian_s"
@@ -1022,47 +1045,44 @@ export default function App() {
             <div className="space-y-6">
               <div className="group relative">
                 <label className="block text-[10px] uppercase tracking-[0.2em] font-medium text-white/40 mb-4 ml-1">Profile Banner (1200x400)</label>
-                <div className="h-32 w-full rounded-2xl border-2 border-dashed border-white/10 bg-white/[0.02] flex flex-col items-center justify-center cursor-pointer hover:bg-white/[0.05] hover:border-emerald-400/30 transition-all overflow-hidden relative">
+                <div className="h-32 w-full rounded-2xl border-2 border-dashed border-white/10 bg-white/[0.02] flex flex-col items-center justify-center overflow-hidden relative">
                   {profile.banner ? (
                     <img src={profile.banner} className="w-full h-full object-cover" />
                   ) : (
                     <>
                       <Upload className="w-6 h-6 text-white/20 mb-2" />
-                      <span className="text-xs text-white/40">Click to upload banner</span>
+                      <span className="text-xs text-white/40">Banner Preview</span>
                     </>
                   )}
-                  <input 
-                    type="file" 
-                    className="absolute inset-0 opacity-0 cursor-pointer" 
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) setProfile({ ...profile, banner: URL.createObjectURL(file) });
-                    }}
-                  />
                 </div>
+                <input 
+                  type="text" 
+                  placeholder="https://example.com/banner.jpg"
+                  className="w-full mt-2 px-4 py-3 bg-white/[0.03] border border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-400/50 transition-all text-sm"
+                  value={profile.banner || ''}
+                  onChange={(e) => setProfile({ ...profile, banner: e.target.value })}
+                />
               </div>
 
               <div className="flex items-center gap-6">
                 <div className="relative group">
-                  <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-white/10 bg-white/[0.02] flex items-center justify-center cursor-pointer hover:bg-white/[0.05] hover:border-emerald-400/30 transition-all overflow-hidden relative">
+                  <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-white/10 bg-white/[0.02] flex items-center justify-center overflow-hidden relative">
                     {profile.pfp ? (
                       <img src={profile.pfp} className="w-full h-full object-cover" />
                     ) : (
                       <Upload className="w-5 h-5 text-white/20" />
                     )}
-                    <input 
-                      type="file" 
-                      className="absolute inset-0 opacity-0 cursor-pointer" 
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) setProfile({ ...profile, pfp: URL.createObjectURL(file) });
-                      }}
-                    />
                   </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-medium mb-1">Profile Picture</h4>
-                  <p className="text-xs text-white/30 leading-relaxed">Recommended: 400x400px.<br/>Supports JPG, PNG, GIF.</p>
+                <div className="flex-grow">
+                  <h4 className="text-sm font-medium mb-1">Profile Picture URL</h4>
+                  <input 
+                    type="text" 
+                    placeholder="https://example.com/avatar.jpg"
+                    className="w-full mt-1 px-4 py-3 bg-white/[0.03] border border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-400/50 transition-all text-sm"
+                    value={profile.pfp || ''}
+                    onChange={(e) => setProfile({ ...profile, pfp: e.target.value })}
+                  />
                 </div>
               </div>
             </div>
@@ -1140,7 +1160,7 @@ export default function App() {
                           <h4 className="text-xs uppercase tracking-widest font-semibold">Bio & Details</h4>
                         </div>
                         <textarea 
-                          value={profile.bio}
+                          value={profile.bio || ''}
                           onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
                           className="w-full h-32 bg-white/[0.03] border border-white/10 rounded-2xl p-4 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-400/50 transition-all resize-none"
                           placeholder="Tell your story..."
@@ -1381,7 +1401,6 @@ export default function App() {
                               <Music className="w-4 h-4 text-emerald-400" />
                               <h4 className="text-xs uppercase tracking-widest font-semibold">Profile Music</h4>
                             </div>
-                            <span className="text-[8px] text-white/20 uppercase tracking-tighter">Suggested by Jericho</span>
                           </div>
 
                           <div className="space-y-6">
@@ -1425,7 +1444,7 @@ export default function App() {
                                       <input 
                                         type="text"
                                         placeholder="Enter title..."
-                                        value={profile.musicTitle}
+                                        value={profile.musicTitle || ''}
                                         onChange={(e) => setProfile({ ...profile, musicTitle: e.target.value })}
                                         className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[10px] focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
                                       />
@@ -1435,7 +1454,7 @@ export default function App() {
                                       <input 
                                         type="text"
                                         placeholder="Enter artist..."
-                                        value={profile.musicArtist}
+                                        value={profile.musicArtist || ''}
                                         onChange={(e) => setProfile({ ...profile, musicArtist: e.target.value })}
                                         className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[10px] focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
                                       />
@@ -1477,7 +1496,7 @@ export default function App() {
                                       <input 
                                         type="text"
                                         placeholder="Enter title..."
-                                        value={profile.musicTitle}
+                                        value={profile.musicTitle || ''}
                                         onChange={(e) => setProfile({ ...profile, musicTitle: e.target.value })}
                                         className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[10px] focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
                                       />
@@ -1487,7 +1506,7 @@ export default function App() {
                                       <input 
                                         type="text"
                                         placeholder="Enter artist..."
-                                        value={profile.musicArtist}
+                                        value={profile.musicArtist || ''}
                                         onChange={(e) => setProfile({ ...profile, musicArtist: e.target.value })}
                                         className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[10px] focus:outline-none focus:ring-1 focus:ring-emerald-400/50"
                                       />
@@ -1539,7 +1558,6 @@ export default function App() {
                               <Sparkles className="w-4 h-4 text-emerald-400" />
                               <h4 className="text-xs uppercase tracking-widest font-semibold">Card Glow</h4>
                             </div>
-                            <span className="text-[8px] text-white/20 uppercase tracking-tighter">Suggested by Grant</span>
                           </div>
                           <div className="grid grid-cols-2 gap-4">
                             {CARD_GLOWS.map(g => (
@@ -1568,7 +1586,6 @@ export default function App() {
                               <ExternalLink className="w-4 h-4 text-emerald-400" />
                               <h4 className="text-xs uppercase tracking-widest font-semibold">Card Outline</h4>
                             </div>
-                            <span className="text-[8px] text-white/20 uppercase tracking-tighter">Suggested by Grant</span>
                           </div>
 
                           <div className="space-y-6">
@@ -1582,7 +1599,7 @@ export default function App() {
                                 min="0"
                                 max="10"
                                 step="0.5"
-                                value={profile.cardOutlineWidth}
+                                value={profile.cardOutlineWidth || 0}
                                 onChange={(e) => setProfile({ ...profile, cardOutlineWidth: parseFloat(e.target.value) })}
                                 className="w-full accent-emerald-400"
                               />
@@ -1732,17 +1749,26 @@ export default function App() {
                   <span className="text-[10px] uppercase tracking-widest font-bold text-white/20">Direct Messages</span>
                 </div>
                 
-                {['Jericho', 'Grant', 'Julian', 'Sterling', 'Aria'].map(name => (
-                  <button key={name} className="w-full flex items-center gap-3 px-3 py-2 rounded text-white/40 hover:bg-white/5 hover:text-white transition-colors group">
-                    <div className="relative">
-                      <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-[10px] font-bold">
-                        {name[0]}
+                {friends.map(friend => {
+                  const friendId = friend.user1Id === user?.uid ? friend.user2Id : friend.user1Id;
+                  const friendProfile = allUsers.find(u => u.id === friendId);
+                  if (!friendProfile) return null;
+                  return (
+                    <button key={friend.id} className="w-full flex items-center gap-3 px-3 py-2 rounded text-white/40 hover:bg-white/5 hover:text-white transition-colors group">
+                      <div className="relative">
+                        {friendProfile.pfp ? (
+                          <img src={friendProfile.pfp} alt={friendProfile.username} className="w-8 h-8 rounded-lg object-cover border border-white/10" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-[10px] font-bold">
+                            {friendProfile.username?.[0] || '?'}
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-sm border-2 border-[#080808]" />
                       </div>
-                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-sm border-2 border-[#080808]" />
-                    </div>
-                    <span className="text-xs font-medium">{name}</span>
-                  </button>
-                ))}
+                      <span className="text-xs font-medium">{friendProfile.username}</span>
+                    </button>
+                  );
+                })}
               </>
             ) : activeAppTab === 'customization' ? (
               <>
@@ -1828,7 +1854,7 @@ export default function App() {
                       <div className="space-y-1">
                         {friends.map(friend => {
                           const friendId = friend.user1Id === user?.uid ? friend.user2Id : friend.user1Id;
-                          const friendProfile = allUsers.find(u => u.uid === friendId);
+                          const friendProfile = allUsers.find(u => u.id === friendId);
                           if (!friendProfile) return null;
                           return (
                             <div key={friend.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all group cursor-pointer">
@@ -1870,7 +1896,7 @@ export default function App() {
                       </div>
                       <div className="space-y-1">
                         {friendRequests.filter(r => r.status === 'pending').map(request => {
-                          const senderProfile = allUsers.find(u => u.uid === request.fromUserId);
+                          const senderProfile = allUsers.find(u => u.id === request.fromUserId);
                           if (!senderProfile) return null;
                           return (
                             <div key={request.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all group">
@@ -1928,7 +1954,7 @@ export default function App() {
                             u.handle?.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             u.username?.toLowerCase().includes(searchQuery.toLowerCase())
                           ).map(u => (
-                            <div key={u.uid} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                            <div key={u.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
                               <div className="flex items-center gap-3">
                                 {u.pfp ? (
                                   <img src={u.pfp} alt={u.username} className="w-10 h-10 rounded-xl object-cover" />
@@ -1943,7 +1969,7 @@ export default function App() {
                                 </div>
                               </div>
                               <button 
-                                onClick={() => handleSendRequest(u.uid)}
+                                onClick={() => handleSendRequest(u.id)}
                                 className="px-3 py-1.5 bg-emerald-500 text-black text-xs font-bold rounded-lg hover:bg-emerald-400 transition-colors"
                               >
                                 Send Request
@@ -2048,6 +2074,25 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+
+                    {user?.email === 'haydensixseven@gmail.com' && (
+                      <div className="p-6 rounded-[24px] bg-red-500/5 border border-red-500/20">
+                        <div className="flex items-center gap-3 mb-4">
+                          <AlertCircle className="w-4 h-4 text-red-400" />
+                          <h4 className="text-[10px] uppercase tracking-widest font-bold text-red-400">Admin Danger Zone</h4>
+                        </div>
+                        <p className="text-[10px] text-red-400/60 mb-4 leading-relaxed">
+                          Wiping the database will delete all user profiles, friend requests, and friendships. 
+                          This is irreversible. Authentication accounts must be deleted manually in the Firebase Console.
+                        </p>
+                        <button 
+                          onClick={handleWipeAllData}
+                          className="w-full py-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] uppercase tracking-widest font-bold rounded-xl hover:bg-red-500 hover:text-white transition-all"
+                        >
+                          Wipe All Database Records
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2278,7 +2323,7 @@ const InputField = ({ icon: Icon, label, type, placeholder, value, onChange }: {
       <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-emerald-400 transition-colors" />
       <input
         type={type}
-        value={value}
+        value={value ?? ''}
         onChange={onChange}
         className="w-full pl-12 pr-4 py-4 bg-white/[0.03] border border-white/10 rounded-xl text-white placeholder:text-white/10 focus:outline-none focus:ring-1 focus:ring-emerald-400/50 transition-all"
         placeholder={placeholder}
