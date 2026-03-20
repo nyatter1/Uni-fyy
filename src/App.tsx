@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 
 // --- Types ---
 enum OperationType {
@@ -506,8 +506,11 @@ const StepIndicator = ({ current, total }: { current: number, total: number }) =
 );
 
 const MusicPlayer = ({ profile, viewMode = 'editor' }: { profile: ProfileState, viewMode?: 'editor' | 'visitor' | 'full' }) => {
-  if (profile.musicStyle === 'none') return null;
-  const config = MUSIC_STYLES.find(s => s.id === profile.musicStyle);
+  // If musicStyle is none, but we have a source, default to a basic style so it shows up
+  const effectiveStyle = profile.musicStyle === 'none' && profile.musicSource ? 'classic' : profile.musicStyle;
+  
+  if (effectiveStyle === 'none') return null;
+  const config = MUSIC_STYLES.find(s => s.id === effectiveStyle);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -615,7 +618,7 @@ const ProfilePreview = ({ profile, viewMode = 'editor' }: { profile: ProfileStat
 
   return (
     <div 
-      className={`relative w-full aspect-[4/5] rounded-[24px] overflow-hidden border ${glowStyle} bg-[#0a0a0a] ${effectClass} transition-all duration-700 ${viewMode === 'full' ? 'scale-110 shadow-2xl' : ''}`}
+      className={`relative w-full aspect-[4/5] rounded-[24px] overflow-hidden border ${glowStyle} bg-[#0a0a0a] ${effectClass} transition-all duration-700 ${viewMode === 'full' ? 'shadow-2xl' : ''}`}
       style={{ 
         borderColor: profile.cardOutline === 'none' ? 'rgba(255,255,255,0.1)' : undefined,
         borderWidth: profile.cardOutlineWidth,
@@ -773,6 +776,10 @@ export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [friends, setFriends] = useState<any[]>([]);
+  const [selectedFriendId, setSelectedFriendId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [messageInput, setMessageInput] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [friendRequests, setFriendRequests] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -803,7 +810,7 @@ export default function App() {
   const [styleTab, setStyleTab] = useState<'solid' | 'gradient' | 'glow'>('solid');
   const [customTab, setCustomTab] = useState<'identity' | 'visuals' | 'effects' | 'socials' | 'suggested'>('visuals');
   const [suggestedSubTab, setSuggestedSubTab] = useState<'music' | 'glow' | 'outline'>('music');
-  const [friendsSubTab, setFriendsSubTab] = useState<'All' | 'Pending' | 'Add Friend'>('All');
+  const [friendsSubTab, setFriendsSubTab] = useState<'All' | 'Pending' | 'Add Friend' | 'Chat'>('All');
 
   // Firebase Auth Listener
   useEffect(() => {
@@ -841,10 +848,24 @@ export default function App() {
       setAllUsers(usersData.filter(u => u.id !== user.uid));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'users'));
 
-    // Listen to friend requests
-    const qRequests = query(collection(db, 'friendRequests'), where('toUserId', '==', user.uid));
-    const reqUnsub = onSnapshot(qRequests, (snapshot) => {
-      setFriendRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // Listen to friend requests (both incoming and outgoing)
+    const qRequestsIn = query(collection(db, 'friendRequests'), where('toUserId', '==', user.uid));
+    const qRequestsOut = query(collection(db, 'friendRequests'), where('fromUserId', '==', user.uid));
+    
+    const reqUnsubIn = onSnapshot(qRequestsIn, (snapshot) => {
+      const incoming = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setFriendRequests(prev => {
+        const others = prev.filter(r => !incoming.find((newR: any) => newR.id === r.id));
+        return [...others, ...incoming];
+      });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'friendRequests'));
+
+    const reqUnsubOut = onSnapshot(qRequestsOut, (snapshot) => {
+      const outgoing = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setFriendRequests(prev => {
+        const others = prev.filter(r => !outgoing.find((newR: any) => newR.id === r.id));
+        return [...others, ...outgoing];
+      });
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'friendRequests'));
 
     // Listen to friendships
@@ -869,11 +890,35 @@ export default function App() {
 
     return () => {
       usersUnsub();
-      reqUnsub();
+      reqUnsubIn();
+      reqUnsubOut();
       friendsUnsub1();
       friendsUnsub2();
     };
   }, [user, isAuthReady]);
+
+  useEffect(() => {
+    if (!user || !selectedFriendId) {
+      setMessages([]);
+      return;
+    }
+    const chatId = [user.uid, selectedFriendId].sort().join('_');
+    const q = query(
+      collection(db, 'messages'),
+      where('chatId', '==', chatId),
+      orderBy('createdAt', 'asc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'messages');
+    });
+    return () => unsubscribe();
+  }, [user, selectedFriendId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -932,8 +977,32 @@ export default function App() {
     }
   };
 
+  const [showProfileSidebar, setShowProfileSidebar] = useState(true);
+  const [showFullProfile, setShowFullProfile] = useState<string | null>(null);
+
   const handleSendRequest = async (toUserId: string) => {
     if (!user) return;
+    
+    // Check if already friends
+    const alreadyFriends = friends.some(f => 
+      (f.user1Id === user.uid && f.user2Id === toUserId) || 
+      (f.user1Id === toUserId && f.user2Id === user.uid)
+    );
+    if (alreadyFriends) {
+      alert("You are already friends with this user.");
+      return;
+    }
+
+    // Check if request already exists
+    const existingRequest = friendRequests.find(r => 
+      (r.fromUserId === user.uid && r.toUserId === toUserId) ||
+      (r.fromUserId === toUserId && r.toUserId === user.uid)
+    );
+    if (existingRequest) {
+      alert("A friend request already exists between you and this user.");
+      return;
+    }
+
     try {
       await addDoc(collection(db, 'friendRequests'), {
         fromUserId: user.uid,
@@ -941,21 +1010,82 @@ export default function App() {
         status: 'pending',
         createdAt: serverTimestamp()
       });
+      alert("Friend request sent!");
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'friendRequests');
     }
   };
 
   const handleAcceptRequest = async (request: any) => {
+    // Check if friendship already exists
+    const alreadyFriends = friends.some(f => 
+      (f.user1Id === request.fromUserId && f.user2Id === request.toUserId) || 
+      (f.user1Id === request.toUserId && f.user2Id === request.fromUserId)
+    );
+
     try {
       await updateDoc(doc(db, 'friendRequests', request.id), { status: 'accepted' });
-      await addDoc(collection(db, 'friendships'), {
-        user1Id: request.fromUserId,
-        user2Id: request.toUserId,
-        createdAt: serverTimestamp()
-      });
+      
+      if (!alreadyFriends) {
+        await addDoc(collection(db, 'friendships'), {
+          user1Id: request.fromUserId,
+          user2Id: request.toUserId,
+          createdAt: serverTimestamp()
+        });
+      }
+      
+      // Delete other pending requests between these two users to clean up
+      const otherRequests = friendRequests.filter(r => 
+        r.id !== request.id && 
+        ((r.fromUserId === request.fromUserId && r.toUserId === request.toUserId) ||
+         (r.fromUserId === request.toUserId && r.toUserId === request.fromUserId))
+      );
+      
+      for (const r of otherRequests) {
+        await deleteDoc(doc(db, 'friendRequests', r.id));
+      }
+
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `friendRequests/${request.id}`);
+    }
+  };
+
+  const cleanupDuplicates = async () => {
+    if (!user) return;
+    console.log("Starting cleanup...");
+    
+    try {
+      // Cleanup duplicate friendships
+      const seenFriendships = new Set<string>();
+      const friendshipDocs = await getDocs(collection(db, 'friendships'));
+      for (const docSnap of friendshipDocs.docs) {
+        const data = docSnap.data();
+        const pair = [data.user1Id, data.user2Id].sort().join('_');
+        if (seenFriendships.has(pair)) {
+          console.log("Deleting duplicate friendship:", docSnap.id);
+          await deleteDoc(docSnap.ref);
+        } else {
+          seenFriendships.add(pair);
+        }
+      }
+
+      // Cleanup duplicate friend requests
+      const seenRequests = new Set<string>();
+      const requestDocs = await getDocs(collection(db, 'friendRequests'));
+      for (const docSnap of requestDocs.docs) {
+        const data = docSnap.data();
+        const pair = [data.fromUserId, data.toUserId].sort().join('_');
+        if (seenRequests.has(pair) || (data.status === 'accepted' && seenFriendships.has(pair))) {
+          console.log("Deleting duplicate/redundant request:", docSnap.id);
+          await deleteDoc(docSnap.ref);
+        } else {
+          seenRequests.add(pair);
+        }
+      }
+      alert("Cleanup complete! Duplicates removed.");
+    } catch (error) {
+      console.error("Cleanup error:", error);
+      alert("Error during cleanup.");
     }
   };
 
@@ -964,6 +1094,25 @@ export default function App() {
       await deleteDoc(doc(db, 'friendRequests', requestId));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `friendRequests/${requestId}`);
+    }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !selectedFriendId || !messageInput.trim()) return;
+    
+    const chatId = [user.uid, selectedFriendId].sort().join('_');
+    try {
+      await addDoc(collection(db, 'messages'), {
+        chatId,
+        fromUserId: user.uid,
+        toUserId: selectedFriendId,
+        content: messageInput.trim(),
+        createdAt: serverTimestamp()
+      });
+      setMessageInput('');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'messages');
     }
   };
 
@@ -1753,8 +1902,16 @@ export default function App() {
                   const friendId = friend.user1Id === user?.uid ? friend.user2Id : friend.user1Id;
                   const friendProfile = allUsers.find(u => u.id === friendId);
                   if (!friendProfile) return null;
+                  const isActive = selectedFriendId === friendId;
                   return (
-                    <button key={friend.id} className="w-full flex items-center gap-3 px-3 py-2 rounded text-white/40 hover:bg-white/5 hover:text-white transition-colors group">
+                    <button 
+                      key={friend.id} 
+                      onClick={() => {
+                        setSelectedFriendId(friendId);
+                        setFriendsSubTab('Chat');
+                      }}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded transition-colors group ${isActive ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5 hover:text-white'}`}
+                    >
                       <div className="relative">
                         {friendProfile.pfp ? (
                           <img src={friendProfile.pfp} alt={friendProfile.username} className="w-8 h-8 rounded-lg object-cover border border-white/10" />
@@ -1822,21 +1979,37 @@ export default function App() {
           {activeAppTab === 'friends' ? (
             <>
               <div className="h-12 border-b border-white/5 flex items-center px-4 gap-4 flex-shrink-0">
-                <div className="flex items-center gap-2 pr-4 border-r border-white/5">
-                  <Users className="w-4 h-4 text-white/40" />
-                  <span className="text-xs font-bold">Friends</span>
-                </div>
-                <div className="flex gap-4">
-                  {['All', 'Pending', 'Add Friend'].map(t => (
-                    <button 
-                      key={t} 
-                      onClick={() => setFriendsSubTab(t as any)}
-                      className={`text-xs font-medium px-2 py-1 rounded transition-colors ${friendsSubTab === t ? (t === 'Add Friend' ? 'bg-emerald-500 text-black' : 'bg-white/10 text-white') : 'text-white/40 hover:bg-white/5 hover:text-white'}`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
+                {friendsSubTab === 'Chat' && selectedFriendId ? (
+                  <>
+                    <div className="flex items-center gap-2 pr-4 border-r border-white/5">
+                      <AtSign className="w-4 h-4 text-white/40" />
+                      <span className="text-xs font-bold">
+                        {allUsers.find(u => u.id === selectedFriendId)?.username || 'Chat'}
+                      </span>
+                    </div>
+                    <div className="flex gap-4">
+                      <span className="text-[10px] text-white/40">Direct Message</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 pr-4 border-r border-white/5">
+                      <Users className="w-4 h-4 text-white/40" />
+                      <span className="text-xs font-bold">Friends</span>
+                    </div>
+                    <div className="flex gap-4">
+                      {['All', 'Pending', 'Add Friend'].map(t => (
+                        <button 
+                          key={t} 
+                          onClick={() => setFriendsSubTab(t as any)}
+                          className={`text-xs font-medium px-2 py-1 rounded transition-colors ${friendsSubTab === t ? (t === 'Add Friend' ? 'bg-emerald-500 text-black' : 'bg-white/10 text-white') : 'text-white/40 hover:bg-white/5 hover:text-white'}`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 <div className="ml-auto flex items-center gap-4">
                   <MessageSquare className="w-4 h-4 text-white/40 hover:text-white cursor-pointer" />
                   <div className="w-[1px] h-6 bg-white/5" />
@@ -1845,8 +2018,91 @@ export default function App() {
               </div>
 
               <div className="flex-grow flex overflow-hidden">
-                <div className="flex-grow overflow-y-auto p-6 custom-scrollbar">
-                  {friendsSubTab === 'All' && (
+                <div className="flex-grow flex flex-col overflow-hidden">
+                  {friendsSubTab === 'Chat' && selectedFriendId ? (
+                    <div className="flex-grow flex flex-col overflow-hidden bg-[#0a0a0a]">
+                      {/* Chat Header */}
+                      <div className="h-12 border-b border-white/5 flex items-center justify-between px-4 bg-[#0a0a0a]/80 backdrop-blur-md z-10">
+                        <div className="flex items-center gap-3">
+                          <AtSign className="w-4 h-4 text-white/40" />
+                          <span className="text-xs font-bold">
+                            {allUsers.find(u => u.id === selectedFriendId)?.username || 'Chat'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <button 
+                            onClick={() => setShowProfileSidebar(!showProfileSidebar)}
+                            className={`p-1.5 rounded-lg transition-colors ${showProfileSidebar ? 'bg-white/10 text-emerald-400' : 'text-white/40 hover:text-white'}`}
+                          >
+                            <User className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex-grow overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                        {messages.length === 0 && (
+                          <div className="flex flex-col items-center justify-center h-full opacity-20">
+                            <MessageSquare className="w-12 h-12 mb-4" />
+                            <p className="text-sm">Start a conversation with {allUsers.find(u => u.id === selectedFriendId)?.username}</p>
+                          </div>
+                        )}
+                        {messages.map((msg, i) => {
+                          const sender = allUsers.find(u => u.id === msg.fromUserId) || (msg.fromUserId === user?.uid ? { username: profile.username, pfp: profile.pfp } : null);
+                          const prevMsg = i > 0 ? messages[i-1] : null;
+                          const isSameSender = prevMsg && prevMsg.fromUserId === msg.fromUserId;
+                          
+                          return (
+                            <div key={msg.id} className={`flex gap-4 ${isSameSender ? 'mt-0.5' : 'mt-4'}`}>
+                              {!isSameSender ? (
+                                <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 bg-white/5 border border-white/10">
+                                  {sender?.pfp ? (
+                                    <img src={sender.pfp} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-xs font-bold">
+                                      {sender?.username?.[0] || '?'}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="w-10 flex-shrink-0" />
+                              )}
+                              <div className="flex-grow min-w-0">
+                                {!isSameSender && (
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-sm font-bold hover:underline cursor-pointer">{sender?.username}</span>
+                                    <span className="text-[10px] text-white/20">
+                                      {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                                    </span>
+                                  </div>
+                                )}
+                                <p className="text-sm text-white/80 leading-relaxed break-words">{msg.content}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div ref={messagesEndRef} />
+                      </div>
+                      
+                      <div className="p-4 pt-0">
+                        <form onSubmit={handleSendMessage} className="relative group">
+                          <input 
+                            type="text"
+                            value={messageInput}
+                            onChange={(e) => setMessageInput(e.target.value)}
+                            placeholder={`Message @${allUsers.find(u => u.id === selectedFriendId)?.username || 'friend'}`}
+                            className="w-full bg-[#111214] border border-black/20 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 transition-all"
+                          />
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                            <button type="submit" className="p-1.5 rounded hover:bg-white/5 text-white/40 hover:text-emerald-400 transition-colors">
+                              <ArrowRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-grow overflow-y-auto p-6 custom-scrollbar">
+                      {friendsSubTab === 'All' && (
                     <>
                       <div className="mb-4">
                         <span className="text-[10px] uppercase tracking-widest font-bold text-white/20">All Friends — {friends.length}</span>
@@ -1857,7 +2113,14 @@ export default function App() {
                           const friendProfile = allUsers.find(u => u.id === friendId);
                           if (!friendProfile) return null;
                           return (
-                            <div key={friend.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all group cursor-pointer">
+                            <div 
+                              key={friend.id} 
+                              onClick={() => {
+                                setSelectedFriendId(friendId);
+                                setFriendsSubTab('Chat');
+                              }}
+                              className="flex items-center justify-between p-3 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all group cursor-pointer"
+                            >
                               <div className="flex items-center gap-4">
                                 <div className="relative">
                                   {friendProfile.pfp ? (
@@ -1888,49 +2151,98 @@ export default function App() {
                       </div>
                     </>
                   )}
-
                   {friendsSubTab === 'Pending' && (
-                    <>
-                      <div className="mb-4">
-                        <span className="text-[10px] uppercase tracking-widest font-bold text-white/20">Pending Requests — {friendRequests.filter(r => r.status === 'pending').length}</span>
-                      </div>
-                      <div className="space-y-1">
-                        {friendRequests.filter(r => r.status === 'pending').map(request => {
-                          const senderProfile = allUsers.find(u => u.id === request.fromUserId);
-                          if (!senderProfile) return null;
-                          return (
-                            <div key={request.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all group">
-                              <div className="flex items-center gap-4">
-                                <div className="relative">
-                                  {senderProfile.pfp ? (
-                                    <img src={senderProfile.pfp} alt={senderProfile.username} className="w-10 h-10 rounded-xl object-cover border border-white/10" />
-                                  ) : (
-                                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-xs font-bold">
-                                      {senderProfile.username?.[0] || '?'}
+                    <div className="flex flex-col gap-8">
+                      {/* Incoming Requests */}
+                      <div className="flex flex-col gap-2">
+                        <div className="mb-2 px-2">
+                          <span className="text-[10px] uppercase tracking-widest font-bold text-white/20">Incoming Requests — {friendRequests.filter(r => r.status === 'pending' && r.toUserId === user?.uid).length}</span>
+                        </div>
+                        <div className="space-y-1">
+                          {friendRequests.filter(r => r.status === 'pending' && r.toUserId === user?.uid).map(request => {
+                            const senderProfile = allUsers.find(u => u.id === request.fromUserId);
+                            if (!senderProfile) return null;
+                            return (
+                              <div key={request.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all group">
+                                <div className="flex items-center gap-4">
+                                  <div className="relative">
+                                    {senderProfile.pfp ? (
+                                      <img src={senderProfile.pfp} alt={senderProfile.username} className="w-10 h-10 rounded-xl object-cover border border-white/10" />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-xs font-bold">
+                                        {senderProfile.username?.[0] || '?'}
+                                      </div>
+                                    )}
+                                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-sm border-2 border-[#0a0a0a]" />
+                                  </div>
+                                  <div>
+                                    <div className="text-sm font-bold flex items-center gap-2">
+                                      {senderProfile.username}
+                                      <span className="text-[10px] text-white/20 font-normal">#{senderProfile.handle}</span>
                                     </div>
-                                  )}
+                                    <div className="text-[10px] text-white/40">Incoming Friend Request</div>
+                                  </div>
                                 </div>
-                                <div>
-                                  <div className="text-sm font-bold">{senderProfile.username}</div>
-                                  <div className="text-[10px] text-white/30">@{senderProfile.handle}</div>
+                                <div className="flex gap-2">
+                                  <button onClick={() => handleAcceptRequest(request)} className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
+                                    <Check className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={() => handleRejectRequest(request.id)} className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
+                                    <X className="w-4 h-4" />
+                                  </button>
                                 </div>
                               </div>
-                              <div className="flex gap-2">
-                                <button onClick={() => handleAcceptRequest(request)} className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
-                                  <Check className="w-4 h-4" />
-                                </button>
-                                <button onClick={() => handleRejectRequest(request.id)} className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {friendRequests.filter(r => r.status === 'pending').length === 0 && (
-                          <div className="text-center py-10 text-white/40 text-sm">No pending requests.</div>
-                        )}
+                            );
+                          })}
+                          {friendRequests.filter(r => r.status === 'pending' && r.toUserId === user?.uid).length === 0 && (
+                            <div className="text-center py-4 text-white/20 text-[10px] uppercase tracking-widest italic">No incoming requests</div>
+                          )}
+                        </div>
                       </div>
-                    </>
+
+                      {/* Outgoing Requests */}
+                      <div className="flex flex-col gap-2">
+                        <div className="mb-2 px-2">
+                          <span className="text-[10px] uppercase tracking-widest font-bold text-white/20">Outgoing Requests — {friendRequests.filter(r => r.status === 'pending' && r.fromUserId === user?.uid).length}</span>
+                        </div>
+                        <div className="space-y-1">
+                          {friendRequests.filter(r => r.status === 'pending' && r.fromUserId === user?.uid).map(request => {
+                            const receiverProfile = allUsers.find(u => u.id === request.toUserId);
+                            if (!receiverProfile) return null;
+                            return (
+                              <div key={request.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/[0.03] border border-transparent hover:border-white/5 transition-all group opacity-60">
+                                <div className="flex items-center gap-4">
+                                  <div className="relative">
+                                    {receiverProfile.pfp ? (
+                                      <img src={receiverProfile.pfp} alt={receiverProfile.username} className="w-10 h-10 rounded-xl object-cover border border-white/10" />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-xs font-bold">
+                                        {receiverProfile.username?.[0] || '?'}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="text-sm font-bold flex items-center gap-2">
+                                      {receiverProfile.username}
+                                      <span className="text-[10px] text-white/20 font-normal">#{receiverProfile.handle}</span>
+                                    </div>
+                                    <div className="text-[10px] text-white/40">Outgoing Friend Request</div>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button onClick={() => handleRejectRequest(request.id)} className="p-2 rounded-lg bg-white/5 text-white/40 hover:bg-white/10 transition-colors" title="Cancel Request">
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {friendRequests.filter(r => r.status === 'pending' && r.fromUserId === user?.uid).length === 0 && (
+                            <div className="text-center py-4 text-white/20 text-[10px] uppercase tracking-widest italic">No outgoing requests</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                   {friendsSubTab === 'Add Friend' && (
@@ -1950,6 +2262,15 @@ export default function App() {
                             />
                             <button 
                               disabled={!searchQuery}
+                              onClick={() => {
+                                const targetUser = allUsers.find(u => u.handle?.toLowerCase() === searchQuery.toLowerCase());
+                                if (targetUser) {
+                                  handleSendRequest(targetUser.id);
+                                  setSearchQuery('');
+                                } else {
+                                  alert("User not found with that handle.");
+                                }
+                              }}
                               className={`px-4 py-2 rounded font-medium text-xs transition-all ${searchQuery ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'bg-emerald-500/20 text-emerald-500/40 cursor-not-allowed'}`}
                             >
                               Send Friend Request
@@ -2010,15 +2331,58 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              )}
+            </div>
 
-                {/* Active Now Sidebar */}
-                <div className="w-80 border-l border-white/5 p-6 hidden xl:block">
-                  <h3 className="text-sm font-bold mb-4">Active Now</h3>
-                  <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 text-center">
-                    <p className="text-xs text-white/40 italic">It's quiet for now...</p>
-                    <p className="text-[10px] text-white/20 mt-2">When friends start an activity, it'll show up here!</p>
-                  </div>
+            {/* Active Now Sidebar / Friend Profile */}
+            {friendsSubTab === 'Chat' && selectedFriendId && showProfileSidebar ? (
+              <div className="w-80 border-l border-white/5 overflow-y-auto custom-scrollbar hidden xl:block bg-[#080808]">
+                {(() => {
+                  const friendProfile = allUsers.find(u => u.id === selectedFriendId);
+                  if (!friendProfile) return null;
+                  return (
+                    <div className="p-4 space-y-6">
+                      <div className="relative group">
+                        <ProfilePreview profile={friendProfile as any} viewMode="full" />
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="text-[10px] uppercase tracking-widest font-bold text-white/20 mb-2">About Me</h3>
+                          <p className="text-xs text-white/60 leading-relaxed">
+                            {friendProfile.bio || "No bio set."}
+                          </p>
+                        </div>
+                        
+                        <div>
+                          <h3 className="text-[10px] uppercase tracking-widest font-bold text-white/20 mb-2">Uni-fy Member Since</h3>
+                          <p className="text-xs text-white/40">
+                            {friendProfile.createdAt?.toDate ? friendProfile.createdAt.toDate().toLocaleDateString() : 'Recently'}
+                          </p>
+                        </div>
+
+                        <div className="pt-4 border-t border-white/5">
+                          <button 
+                            onClick={() => setShowFullProfile(selectedFriendId)}
+                            className="w-full py-2 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] uppercase tracking-widest font-bold transition-all"
+                          >
+                            View Full Profile
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="w-80 border-l border-white/5 p-6 hidden xl:block">
+                <h3 className="text-sm font-bold mb-4">Active Now</h3>
+                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 text-center">
+                  <p className="text-xs text-white/40 italic">It's quiet for now...</p>
+                  <p className="text-[10px] text-white/20 mt-2">When friends start an activity, it'll show up here!</p>
                 </div>
+              </div>
+            )}
               </div>
             </>
           ) : activeAppTab === 'customization' ? (
@@ -2105,21 +2469,29 @@ export default function App() {
                     </div>
 
                     {user?.email === 'haydensixseven@gmail.com' && (
-                      <div className="p-6 rounded-[24px] bg-red-500/5 border border-red-500/20">
-                        <div className="flex items-center gap-3 mb-4">
+                      <div className="p-6 rounded-[24px] bg-red-500/5 border border-red-500/20 space-y-4">
+                        <div className="flex items-center gap-3 mb-2">
                           <AlertCircle className="w-4 h-4 text-red-400" />
                           <h4 className="text-[10px] uppercase tracking-widest font-bold text-red-400">Admin Danger Zone</h4>
                         </div>
-                        <p className="text-[10px] text-red-400/60 mb-4 leading-relaxed">
+                        <p className="text-[10px] text-red-400/60 leading-relaxed">
                           Wiping the database will delete all user profiles, friend requests, and friendships. 
-                          This is irreversible. Authentication accounts must be deleted manually in the Firebase Console.
+                          Cleanup will remove duplicate entries while keeping the relationships.
                         </p>
-                        <button 
-                          onClick={handleWipeAllData}
-                          className="w-full py-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] uppercase tracking-widest font-bold rounded-xl hover:bg-red-500 hover:text-white transition-all"
-                        >
-                          Wipe All Database Records
-                        </button>
+                        <div className="flex gap-3">
+                          <button 
+                            onClick={cleanupDuplicates}
+                            className="flex-grow py-3 bg-white/5 border border-white/10 text-white/60 text-[10px] uppercase tracking-widest font-bold rounded-xl hover:bg-white/10 transition-all"
+                          >
+                            Cleanup Duplicates
+                          </button>
+                          <button 
+                            onClick={handleWipeAllData}
+                            className="px-4 py-3 bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] uppercase tracking-widest font-bold rounded-xl hover:bg-red-500 hover:text-white transition-all"
+                          >
+                            Wipe Records
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2340,6 +2712,28 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Full Profile Modal */}
+        {showFullProfile && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="relative w-full max-w-lg"
+            >
+              <button 
+                onClick={() => setShowFullProfile(null)}
+                className="absolute -top-12 right-0 p-2 text-white/40 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              {(() => {
+                const profile = allUsers.find(u => u.id === showFullProfile);
+                return profile ? <ProfilePreview profile={profile as any} viewMode="full" /> : null;
+              })()}
+            </motion.div>
+          </div>
+        )}
       </div>
     </div>
   );

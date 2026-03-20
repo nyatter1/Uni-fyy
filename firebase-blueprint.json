@@ -60,6 +60,19 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["user1Id", "user2Id", "createdAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A direct message between two friends.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string", "description": "Combined ID of the two users" },
+        "fromUserId": { "type": "string" },
+        "toUserId": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chatId", "fromUserId", "toUserId", "content", "createdAt"]
     }
   },
   "firestore": {
@@ -74,6 +87,10 @@
     "/friendships/{friendshipId}": {
       "schema": { "$ref": "#/entities/Friendship" },
       "description": "Confirmed friendships."
+    },
+    "/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Direct messages between users."
     }
   }
 }
